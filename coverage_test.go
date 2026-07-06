@@ -26,6 +26,31 @@ func TestErrorMessages(t *testing.T) {
 	}
 }
 
+func TestSerializeStringKeyedHash(t *testing.T) {
+	a := NewArguments()
+	// A Hash with only string keys leaves the symbol-keys list nil, exercising
+	// serializeHash's "symKeys == nil -> []any{}" branch. This is otherwise only
+	// covered by the MRI oracle, which is skipped where ruby is unavailable (the
+	// Windows and cross-arch lanes), so a deterministic test must drive it to keep
+	// the 100% coverage gate OS-independent.
+	got, err := a.SerializeJSON([]any{NewHash().Set("a", int64(1)).Set("b", int64(2))})
+	if err != nil {
+		t.Fatalf("SerializeJSON: %v", err)
+	}
+	if want := `[{"a":1,"b":2,"_aj_symbol_keys":[]}]`; string(got) != want {
+		t.Errorf("string-keyed hash\n got: %s\nwant: %s", got, want)
+	}
+
+	// An empty Hash likewise emits an empty symbol-keys list.
+	got, err = a.SerializeJSON([]any{NewHash()})
+	if err != nil {
+		t.Fatalf("SerializeJSON empty: %v", err)
+	}
+	if want := `[{"_aj_symbol_keys":[]}]`; string(got) != want {
+		t.Errorf("empty hash\n got: %s\nwant: %s", got, want)
+	}
+}
+
 func TestDeserializeAcceptsObjectValues(t *testing.T) {
 	a := NewArguments()
 	// Feed Serialize's own output (which contains *Object values) straight back
