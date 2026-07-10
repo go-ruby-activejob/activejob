@@ -31,7 +31,7 @@ jobs:
       - if: runner.os != 'Windows'
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.4.10"
+          ruby-version: "4.0.5"
       - if: runner.os != 'Windows'
         name: Install the ActiveJob MRI oracle gems
         run: gem install --no-document activejob activesupport globalid
