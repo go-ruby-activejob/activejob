@@ -15,9 +15,6 @@ var timeNow = time.Now
 // defaultQueueName is the queue a job class uses unless queue_as says otherwise.
 const defaultQueueName = "default"
 
-// defaultRetryAttempts is retry_on's default maximum number of executions.
-const defaultRetryAttempts = 5
-
 var (
 	// ErrNoAdapter is returned by perform_later when the job class has no queue
 	// adapter configured.
@@ -45,34 +42,6 @@ func MatchAny() ErrorMatcher {
 	return func(error) bool { return true }
 }
 
-// RetryOptions configures a retry_on rule.
-type RetryOptions struct {
-	// Attempts is the maximum number of executions before giving up. Zero means
-	// the ActiveJob default of 5.
-	Attempts int
-	// Wait computes the delay before the next attempt from the current execution
-	// count. Nil means retry with no delay.
-	Wait func(executions int) time.Duration
-	// Block runs when attempts are exhausted; if nil, the error is re-raised.
-	Block func(job *Job, err error) error
-}
-
-// DiscardOptions configures a discard_on rule.
-type DiscardOptions struct {
-	// Block runs when a matching error is discarded; if nil, the error is swallowed.
-	Block func(job *Job, err error) error
-}
-
-// rescueHandler is one retry_on/discard_on rule, kept in definition order so the
-// first matching rule wins (as with Ruby's rescue_from).
-type rescueHandler struct {
-	match    ErrorMatcher
-	isRetry  bool
-	attempts int
-	wait     func(int) time.Duration
-	block    func(*Job, error) error
-}
-
 // Base models an ActiveJob job class: its perform seam, queue adapter, queue
 // name, priority, retry/discard rules and callbacks. Configure it with the
 // chainable builder methods, then create instances with [Base.New].
@@ -82,13 +51,14 @@ type Base struct {
 	// Args is the argument serializer (carrying the GlobalID seams). Never nil.
 	Args *Arguments
 
-	perform    PerformFunc
-	adapter    Adapter
-	queueName  string
-	queueBlock func(*Job) string
-	priority   *int
-	rescues    []rescueHandler
-	cb         callbackSet
+	perform     PerformFunc
+	adapter     Adapter
+	queueName   string
+	queueBlock  func(*Job) string
+	priority    *int
+	rescues     []rescueRule
+	retryJitter float64
+	cb          callbackSet
 }
 
 // NewBase returns a job class named name with the default queue and no adapter.
@@ -110,31 +80,6 @@ func (b *Base) QueueAsFunc(fn func(*Job) string) *Base { b.queueBlock = fn; retu
 
 // WithPriority sets the default priority and returns b.
 func (b *Base) WithPriority(p int) *Base { b.priority = &p; return b }
-
-// RetryOn registers a retry_on rule and returns b.
-func (b *Base) RetryOn(match ErrorMatcher, opts RetryOptions) *Base {
-	attempts := opts.Attempts
-	if attempts <= 0 {
-		attempts = defaultRetryAttempts
-	}
-	b.rescues = append(b.rescues, rescueHandler{
-		match:    match,
-		isRetry:  true,
-		attempts: attempts,
-		wait:     opts.Wait,
-		block:    opts.Block,
-	})
-	return b
-}
-
-// DiscardOn registers a discard_on rule and returns b.
-func (b *Base) DiscardOn(match ErrorMatcher, opts DiscardOptions) *Base {
-	b.rescues = append(b.rescues, rescueHandler{
-		match: match,
-		block: opts.Block,
-	})
-	return b
-}
 
 // BeforeEnqueue registers a before_enqueue callback and returns b.
 func (b *Base) BeforeEnqueue(fn CallbackFunc) *Base {
@@ -271,32 +216,4 @@ func (j *Job) PerformNow() error {
 		return j.handlePerformError(err)
 	}
 	return nil
-}
-
-func (j *Job) handlePerformError(err error) error {
-	for _, h := range j.Base.rescues {
-		if !h.match(err) {
-			continue
-		}
-		if !h.isRetry {
-			if h.block != nil {
-				return h.block(j, err)
-			}
-			return nil
-		}
-		if j.Executions < h.attempts {
-			if h.wait != nil {
-				if wait := h.wait(j.Executions); wait > 0 {
-					t := timeNow().Add(wait)
-					j.ScheduledAt = &t
-				}
-			}
-			return j.enqueue()
-		}
-		if h.block != nil {
-			return h.block(j, err)
-		}
-		return err
-	}
-	return err
 }
