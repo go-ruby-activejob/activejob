@@ -137,12 +137,22 @@ insertion-ordered; Go maps are not).
 ## v0.1 scope
 
 - **`Base` / `Job`** — `perform_later`, `perform_now`, `set(queue:, wait:, wait_until:, priority:)`,
-  `queue_as` (static and per-job), `retry_on` / `discard_on`, and the
-  `job_id` / `queue_name` / `arguments` / `executions` / `enqueued_at` / … state.
+  `queue_as` (static and per-job), and the
+  `job_id` / `queue_name` / `arguments` / `executions` / `exception_executions` /
+  `enqueued_at` / … state.
+- **Exceptions** — `rescue_from` (the primitive), plus `retry_on` / `discard_on`
+  built on it: `attempts` (incl. `:unlimited`), a custom `wait` proc, a constant
+  `WaitSeconds`, the `:polynomially_longer` backoff (`(executions⁴) + jitter + 2`),
+  class-level and per-rule `jitter`, per-retry `queue` / `priority` overrides, and
+  the faithful `exception_executions` bucket. Handlers are searched bottom-to-top.
 - **`Arguments`** — MRI-exact `serialize` / `deserialize` for every argument type above.
 - **Adapters** — the `Adapter` interface plus `InlineAdapter`, `TestAdapter`
   (record + `PerformEnqueuedJobs`), `AsyncAdapter` (goroutine pool + `Drain`),
   a `BulkAdapter` capability, and the named-adapter registry (`RegisterAdapter` / `LookupAdapter`).
+- **`TestHelper`** — `ActiveJob::TestHelper`-style assertions over a `TestAdapter`:
+  `AssertEnqueuedJobs` / `AssertNoEnqueuedJobs`, `AssertPerformedJobs` /
+  `AssertNoPerformedJobs`, and `AssertEnqueuedWith` / `AssertPerformedWith`
+  (matching `job` / `args` / `queue` / `priority` / `at`).
 - **Callbacks** — before/after/around for enqueue and perform.
 - **`Registry`** — job-class dispatch; **`PerformAllLater`** bulk enqueue.
 
@@ -153,8 +163,10 @@ insertion-ordered; Go maps are not).
   `BulkAdapter` capability are the intended integration points; a future adapter
   maps our payload onto the backend's job hash.
 - **i18n** locale propagation beyond the recorded `locale` field.
-- **Instrumentation / Notifications** (`ActiveSupport::Notifications` events).
-- **TestHelper matchers** (`assert_enqueued_with`, `perform_enqueued_jobs` blocks).
+- **Instrumentation / Notifications** (`ActiveSupport::Notifications` events),
+  including the `after_discard` hook and the `report:` error-reporter option.
+- **Block-scoped `TestHelper`** forms (`perform_enqueued_jobs` / `assert_enqueued_with`
+  with a block that scopes the assertion to jobs enqueued inside it).
 - **Continuations** and `ruby2_keywords` fidelity beyond symbol-key restoration.
 
 ## Tests & coverage
